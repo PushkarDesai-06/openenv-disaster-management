@@ -92,6 +92,7 @@ def create_app() -> FastAPI:
             "service": "disaster-simulation-api",
             "health": "/health",
             "docs": "/docs",
+            "ui": "/ui",
         }
 
     @app.get("/health")
@@ -129,6 +130,51 @@ def create_app() -> FastAPI:
         observation = env._build_observation()
         snapshot = _to_snapshot(observation, env.state)
         return WearableTelemetryEnvelope(snapshot=snapshot)
+
+    def ui_reset(seed: Optional[int], episode_id: Optional[str]) -> dict:
+        observation = env.reset(seed=seed, episode_id=episode_id)
+        snapshot = _to_snapshot(observation, env.state)
+        return {
+            "observation": snapshot.model_dump(),
+            "reward": 0.0,
+            "done": False,
+            "state": asdict(env.state),
+        }
+
+    def ui_step(interaction: str, row: int, col: int) -> dict:
+        result = env.step(
+            DisasterAction(
+                interaction=interaction,
+                row=row,
+                col=col,
+            )
+        )
+        snapshot = _to_snapshot(result.observation, env.state)
+        return {
+            "observation": snapshot.model_dump(),
+            "reward": result.reward,
+            "done": result.done,
+            "state": asdict(env.state),
+        }
+
+    try:
+        import gradio as gr
+
+        try:
+            from .gradio_ui import create_gradio_demo
+        except ImportError:
+            from disaster_sim.api.gradio_ui import create_gradio_demo
+
+        demo = create_gradio_demo(
+            reset_fn=ui_reset,
+            step_fn=ui_step,
+            state_fn=lambda: asdict(env.state),
+            grid_size=env.grid_size,
+        )
+        app = gr.mount_gradio_app(app, demo, path="/ui")
+    except ImportError:
+        # Keep API endpoints functional even when Gradio is not installed.
+        pass
 
     return app
 

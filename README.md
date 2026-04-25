@@ -25,6 +25,7 @@ that can be deployed to Hugging Face Spaces using Docker.
 - POST /step: execute an action
 - GET /state: read current episode state
 - GET /telemetry/current: current masked telemetry snapshot
+- GET /ui: Gradio control panel for reset and step
 
 ## Local Run
 
@@ -36,6 +37,7 @@ uvicorn disaster_sim.api.server:app --host 0.0.0.0 --port 7860
 ```
 
 Then open /docs for the interactive OpenAPI UI.
+For the Gradio reset/step interface, open /ui.
 
 ## Hugging Face Spaces Deployment
 
