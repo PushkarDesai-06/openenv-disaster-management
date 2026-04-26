@@ -168,7 +168,7 @@ def _load_model_and_tokenizer(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    model_kwargs: dict[str, object] = {"device_map": "auto"}
+    model_kwargs: dict[str, object] = {"device_map": "auto", "low_cpu_mem_usage": True}
     if torch.cuda.is_available() and use_4bit:
         bf16_ok = bool(getattr(torch.cuda, "is_bf16_supported", lambda: False)())
         compute_dtype = torch.bfloat16 if bf16_ok else torch.float16
@@ -178,11 +178,17 @@ def _load_model_and_tokenizer(
             bnb_4bit_use_double_quant=True,
             bnb_4bit_compute_dtype=compute_dtype,
         )
+    elif torch.cuda.is_available():
+        bf16_ok = bool(getattr(torch.cuda, "is_bf16_supported", lambda: False)())
+        model_kwargs["torch_dtype"] = torch.bfloat16 if bf16_ok else torch.float16
 
     model = AutoModelForCausalLM.from_pretrained(base_model, **model_kwargs)
     if adapter_path:
         model = PeftModel.from_pretrained(model, adapter_path)
 
+    # Disabling cache reduces peak memory during repeated per-step generation rollouts.
+    if hasattr(model, "config"):
+        model.config.use_cache = False
     model.eval()
     return model, tokenizer
 
@@ -208,13 +214,27 @@ def _make_llm_policy(
         tokenized = {key: value.to(device) for key, value in tokenized.items()}
 
         with torch.no_grad():
-            generated = model.generate(
-                **tokenized,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                pad_token_id=tokenizer.pad_token_id,
-                eos_token_id=tokenizer.eos_token_id,
-            )
+            try:
+                generated = model.generate(
+                    **tokenized,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    pad_token_id=tokenizer.pad_token_id,
+                    eos_token_id=tokenizer.eos_token_id,
+                    use_cache=False,
+                )
+            except RuntimeError as exc:
+                message = str(exc).lower()
+                if (
+                    "out of memory" in message
+                    or "bitsandbytes" in message
+                    or "gemv_4bit" in message
+                ):
+                    raise RuntimeError(
+                        "LLM generation failed due GPU memory or 4-bit kernel limits. "
+                        "Retry with --no-4bit --max-new-tokens 32 --episodes 20."
+                    ) from exc
+                raise
 
         prompt_tokens = int(tokenized["input_ids"].shape[1])
         generated_tokens = generated[0][prompt_tokens:]
@@ -509,7 +529,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-steps", type=int, default=45)
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--output-dir", type=str, default=_default_output_dir())
-    parser.add_argument("--max-new-tokens", type=int, default=64)
+    parser.add_argument("--max-new-tokens", type=int, default=32)
     parser.add_argument("--dpi", type=int, default=220)
     parser.add_argument("--run-random-baseline", action="store_true")
     parser.add_argument("--run-teacher-baseline", action="store_true")
