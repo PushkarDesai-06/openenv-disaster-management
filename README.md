@@ -44,3 +44,27 @@ For the Gradio reset/step interface, open /ui.
 1. Create a new Space with SDK set to Docker.
 2. Push this repository to the Space.
 3. Spaces will build using Dockerfile and expose port 7860.
+
+## LLM QLoRA Training (Colab)
+
+Use the dedicated training script and dependency file for QLoRA runs:
+
+1. Install training dependencies:
+
+	pip install -r requirements-llm.txt
+
+2. Run training:
+
+	python -m disaster_sim.train_llm_qlora \
+	  --base-model Qwen/Qwen2.5-3B-Instruct \
+	  --output-dir outputs/disaster-dispatcher-qlora \
+	  --episodes 250 \
+	  --max-steps 45 \
+	  --epochs 1 \
+	  --batch-size 1 \
+	  --grad-accum 8
+
+3. Optional: push adapter directly to Hugging Face Hub:
+
+	python -m disaster_sim.train_llm_qlora \
+	  --hf-adapter-repo YOUR_USERNAME/disaster-dispatcher-qlora
