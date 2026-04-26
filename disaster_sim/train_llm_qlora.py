@@ -8,6 +8,14 @@ from typing import Any, Optional
 
 import numpy as np
 
+
+def _default_output_dir() -> str:
+    if os.path.isdir("/content/drive/MyDrive"):
+        return "/content/drive/MyDrive/openenv-checkpoints/disaster-dispatcher-qlora"
+    if os.path.isdir("/content"):
+        return "/content/outputs/disaster-dispatcher-qlora"
+    return "outputs/disaster-dispatcher-qlora"
+
 try:
     from disaster_sim.envs.disaster_env import (
         DisasterAction,
@@ -266,20 +274,21 @@ def run_qlora_training(args: argparse.Namespace) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="QLoRA training for disaster dispatcher LLM")
     parser.add_argument("--base-model", type=str, default="Qwen/Qwen2.5-3B-Instruct")
-    parser.add_argument("--output-dir", type=str, default="outputs/disaster-dispatcher-qlora")
+    parser.add_argument("--output-dir", type=str, default=_default_output_dir())
     parser.add_argument("--hf-adapter-repo", type=str, default="")
 
     parser.add_argument("--grid-size", type=int, default=10)
-    parser.add_argument("--episodes", type=int, default=250)
-    parser.add_argument("--max-steps", type=int, default=45)
+    # Hardcoded smoke-test defaults so a plain run works cleanly on Colab.
+    parser.add_argument("--episodes", type=int, default=60)
+    parser.add_argument("--max-steps", type=int, default=30)
     parser.add_argument("--seed", type=int, default=123)
 
     parser.add_argument("--epochs", type=float, default=1.0)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--grad-accum", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
-    parser.add_argument("--max-seq-len", type=int, default=1024)
-    parser.add_argument("--save-steps", type=int, default=100)
+    parser.add_argument("--max-seq-len", type=int, default=768)
+    parser.add_argument("--save-steps", type=int, default=50)
 
     parser.add_argument("--lora-r", type=int, default=16)
     parser.add_argument("--lora-alpha", type=int, default=32)
