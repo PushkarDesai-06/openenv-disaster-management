@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
-from dataclasses import asdict
 from typing import Any, Optional
 
 import numpy as np
@@ -184,37 +184,60 @@ def run_qlora_training(args: argparse.Namespace) -> None:
         ],
     )
 
-    sft_config = SFTConfig(
-        output_dir=args.output_dir,
-        dataset_text_field="text",
-        max_seq_length=args.max_seq_len,
-        num_train_epochs=args.epochs,
-        per_device_train_batch_size=args.batch_size,
-        gradient_accumulation_steps=args.grad_accum,
-        learning_rate=args.learning_rate,
-        logging_steps=10,
-        save_steps=args.save_steps,
-        warmup_ratio=0.03,
-        lr_scheduler_type="cosine",
-        optim="paged_adamw_8bit",
-        bf16=bf16_ok,
-        fp16=not bf16_ok,
-        report_to="none",
-        packing=args.packing,
-    )
+    sft_config_signature = inspect.signature(SFTConfig.__init__).parameters
 
+    sft_config_kwargs: dict[str, Any] = {
+        "output_dir": args.output_dir,
+        "num_train_epochs": args.epochs,
+        "per_device_train_batch_size": args.batch_size,
+        "gradient_accumulation_steps": args.grad_accum,
+        "learning_rate": args.learning_rate,
+        "logging_steps": 10,
+        "save_steps": args.save_steps,
+        "warmup_ratio": 0.03,
+        "lr_scheduler_type": "cosine",
+        "optim": "paged_adamw_8bit",
+        "bf16": bf16_ok,
+        "fp16": not bf16_ok,
+        "report_to": "none",
+    }
+
+    if "dataset_text_field" in sft_config_signature:
+        sft_config_kwargs["dataset_text_field"] = "text"
+    if "max_seq_length" in sft_config_signature:
+        sft_config_kwargs["max_seq_length"] = args.max_seq_len
+    elif "max_length" in sft_config_signature:
+        sft_config_kwargs["max_length"] = args.max_seq_len
+    if "packing" in sft_config_signature:
+        sft_config_kwargs["packing"] = args.packing
+
+    sft_config = SFTConfig(**sft_config_kwargs)
+
+    trainer_signature = inspect.signature(SFTTrainer.__init__).parameters
     trainer_kwargs: dict[str, Any] = {
         "model": model,
         "args": sft_config,
         "train_dataset": dataset,
         "peft_config": peft_config,
-        "max_seq_length": args.max_seq_len,
     }
 
-    try:
-        trainer = SFTTrainer(tokenizer=tokenizer, **trainer_kwargs)
-    except TypeError:
-        trainer = SFTTrainer(processing_class=tokenizer, **trainer_kwargs)
+    # Keep tokenizer wiring compatible across TRL versions.
+    if "tokenizer" in trainer_signature:
+        trainer_kwargs["tokenizer"] = tokenizer
+    elif "processing_class" in trainer_signature:
+        trainer_kwargs["processing_class"] = tokenizer
+
+    # Older TRL versions expect these fields on SFTTrainer instead of SFTConfig.
+    if "dataset_text_field" in trainer_signature and "dataset_text_field" not in sft_config_kwargs:
+        trainer_kwargs["dataset_text_field"] = "text"
+    if "max_seq_length" in trainer_signature and "max_seq_length" not in sft_config_kwargs:
+        trainer_kwargs["max_seq_length"] = args.max_seq_len
+    elif "max_length" in trainer_signature and "max_length" not in sft_config_kwargs:
+        trainer_kwargs["max_length"] = args.max_seq_len
+    if "packing" in trainer_signature and "packing" not in sft_config_kwargs:
+        trainer_kwargs["packing"] = args.packing
+
+    trainer = SFTTrainer(**trainer_kwargs)
 
     trainer.train()
     trainer.model.save_pretrained(args.output_dir)
